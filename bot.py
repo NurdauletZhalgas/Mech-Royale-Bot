@@ -8,7 +8,7 @@ from mobility import Movement
 
 
 class Bot:
-    name = "collector"
+    name = "capacitor"
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
@@ -17,6 +17,7 @@ class Bot:
         self.drone_height = hello["config"]["npc"]["height"]
         self.focus = None
         self.recovering = False
+        self.arc_recharging = False
         self.arena = Arena(hello["map"]["dir"])
         self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
@@ -127,6 +128,7 @@ class Bot:
             # Zone damage disables regeneration; spend the turn getting inside.
             target_dist = math.inf
         fire = [False, False]
+        yaw_gap = abs(math.remainder(action["aim"][0] - me["aim"][0], math.tau))
         for i, weapon in enumerate(me["weapons"]):
             if not weapon:
                 continue
@@ -138,7 +140,13 @@ class Bot:
             elif kind == "laser":
                 fire[i] = target_dist < stats["range"] and weapon.get("charge", 0) < stats["charge"] * 0.92
             elif kind == "lightning":
-                fire[i] = target_dist < stats["range"] and me["energy"] >= stats["energy"]
+                if me["energy"] < stats["energy"] * 1.1:
+                    self.arc_recharging = True
+                elif me["energy"] >= min(me["max_energy"] * 0.45, stats["energy"] * 9):
+                    self.arc_recharging = False
+                # The arc spends energy even when fired outside its game cone.
+                fire[i] = (target_dist < stats["range"] and not self.arc_recharging
+                           and yaw_gap < math.radians(stats["cone_deg"]))
             elif kind == "mortar":
                 fire[i] = 25 < target_dist < 105
         action["fire"] = fire
