@@ -38,6 +38,7 @@ On November 21, 2026, Builders scored team **anti-67** at **1.27** over 48 pract
 | Adjust energy use and encounter distance | `256e3ae` | 4.98 | `BB-8BD2A3E1` |
 | Prioritize the shrinking circle | `879f19d` | 4.71 | `BB-6892A2E6` |
 | Value cube piles by upgrade and prioritize the circle in the final three | `81de681` | 4.96 | `BB-89CFB778` |
+| Search for a second weapon during the opening | `84aed5b` | 4.94 | Reported by anti-67 |
 
 `python check/objectives.py` runs short single-objective trials using an approximate movement grid and the kit's timing and energy settings. Use `--seed` to change layouts and `--trials` to change the sample count. The test reports travel and capture times with no opponents.
 
