@@ -7,7 +7,7 @@ The track scores mean placement across matches. First place earns 15 points and 
 ## Bots
 
 - `example_bot.py` runs the official Python starter. Its entry point also supports importing its behavior.
-- `bot.py` runs the competition candidate. It can collect a first cube during a quiet opening and uses `arena_map.py` to plan a route to a roof inside the next circle. The movement grid comes from the match's supplied map. The bot budgets jet energy for upcoming ledges.
+- `bot.py` runs the competition candidate. It uses `arena_map.py` to route over the supplied terrain, `economy.py` to collect upgrades and hold supply rings, and `mobility.py` to move during encounters.
 
 ## Run the official check
 
@@ -28,6 +28,14 @@ python check/check.py --map-dir /arena -- docker run --rm -i --platform linux/am
 The checker replays fixed observations. The first candidate and starter both passed locally with 300 on-time answers. The recorded route did not trigger the candidate's loot behavior. Separate constructed observations exercised cube collection decisions, crate targeting, abandoning a stalled detour, and returning to the starter behavior under pressure.
 
 On November 21, 2026, Builders scored team **anti-67** at **1.27** over 48 practice matches for commit `75bd73e`, receipt `BB-767D6A1E`. That is 0.12 points above the published starter score and corresponds to a mean finish of about 14.73 out of 16. The receipt reports the aggregate score only.
+
+| Candidate | Submitted commit | Official score | Receipt |
+| --- | --- | ---: | --- |
+| Rooftop navigation | `b75ce9a` | 0.98 | `BB-5D46B8D8` |
+| Resource collection and supply drops | `81943da` | 3.98 | `BB-A993554A` |
+| Movement during encounters | `edb6e1f` | 4.44 | `BB-0E869D03` |
+
+`python check/objectives.py` runs short single-objective trials using an approximate movement grid and the kit's timing and energy settings. Use `--seed` to change layouts and `--trials` to change the sample count. The test reports travel and capture times with no opponents.
 
 ## Competition plan
 

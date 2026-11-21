@@ -18,8 +18,8 @@ class Movement:
         if distance > 180 or not me["in_zone"]:
             return
         # Keep moving while the torso stays on the game's opponent. Shorter circles suit lightning.
-        secondary = me["weapons"][1]
-        ideal = 30 if secondary and secondary["kind"] == "lightning" else 47
+        has_lightning = any(w and w["kind"] == "lightning" for w in me["weapons"])
+        ideal = 30 if has_lightning else 47
         radial = max(-1.0, min(1.35, (distance - ideal) / 29))
         dx, dy = dx / distance, dy / distance
         if purpose == "drop" and math.dist((x, y), goal) < 6:

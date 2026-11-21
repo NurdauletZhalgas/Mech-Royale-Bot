@@ -9,7 +9,7 @@ from example_bot import Bot as Starter
 
 
 class Bot(Starter):
-    name = "carousel"
+    name = "twin-core"
 
     def __init__(self, hello: mf.Hello):
         super().__init__(hello)
@@ -23,8 +23,8 @@ class Bot(Starter):
         self.last_pos = None
         self.check_motion_at = 0
         self.jet_until = -1
+        self.travel_sprint = False
         self.orbit_phase = hello["slot"] * 0.39
-
 
     def act(self, obs: mf.Observation) -> mf.Action:
         action = super().act(obs)
@@ -55,7 +55,8 @@ class Bot(Starter):
                 wx, wy = self.goal
         elif goal_dist < 10 and item:
             wx, wy, top = *goal, goal_z
-        if purpose == "drop" and goal_dist < item["radius"] * 0.65 and abs(z - goal_z) < 4:
+        if (purpose == "drop" and me["grounded"] and goal_dist < item["radius"] * 0.65
+                and abs(z - goal_z) < 2):
             wx, wy = x, y
         dx, dy = wx - x, wy - y
         distance = math.hypot(dx, dy)
@@ -71,7 +72,13 @@ class Bot(Starter):
         climb = (not arrived and distance < 14 and ledge > me["stats"]["step_up"]
                  and (not me["grounded"] or me["energy"] >= min(me["max_energy"] - 1, energy_for_climb + 6)))
         jet = climb or (not arrived and now < self.jet_until)
-        sprint = (not me["in_zone"] and me["grounded"] and ledge < 2 and me["energy"] > 30)
+        energy_ratio = me["energy"] / max(1, me["max_energy"])
+        if energy_ratio < 0.62:
+            self.travel_sprint = False
+        elif energy_ratio > 0.92:
+            self.travel_sprint = True
+        sprint = (me["grounded"] and ledge < 2 and goal_dist > 13
+                  and ((not me["in_zone"] and me["energy"] > 30) or self.travel_sprint))
         scale = max(distance, 3)
         action.update(move=[dx / scale, dy / scale], jump=jet and me["grounded"],
                       boost=(jet and me["energy"] > 1) or sprint)
@@ -91,20 +98,30 @@ class Bot(Starter):
         elif not opponents and obs["mechs"]:
             drone = min(obs["mechs"], key=lambda m: math.dist(m["pos"], me["pos"]))
             self.aim_at_prop(action, me, drone["pos"], 1.75)
-        if not obs["mechs"] and not visible_crate:
-            gun = me["weapons"][0]
-            if gun and gun["kind"] == "gun" and gun.get("ammo", 99) < gun["stats"]["mag"] * 0.7:
-                action["reload"] = True
-        secondary = me["weapons"][1]
-        if secondary and opponents:
-            distance = min(math.dist(m["pos"], me["pos"]) for m in opponents)
-            kind, stats = secondary["kind"], secondary["stats"]
-            if kind == "laser":
-                action["fire"][1] = distance < stats["range"] and secondary.get("charge", 0) < stats["charge"] * 0.92
+        if opponents:
+            target_dist = math.dist(closest["pos"], me["pos"])
+        elif visible_crate:
+            target_dist = math.dist(item["pos"], me["pos"])
+        elif obs["mechs"]:
+            target_dist = math.dist(drone["pos"], me["pos"])
+        else:
+            target_dist = math.inf
+        fire = [False, False]
+        for i, weapon in enumerate(me["weapons"]):
+            if not weapon:
+                continue
+            kind, stats = weapon["kind"], weapon["stats"]
+            if kind == "gun":
+                fire[i] = target_dist <= stats["range"]
+                if target_dist > stats["range"] and weapon.get("ammo", 99) < stats["mag"] * 0.7:
+                    action["reload"] = True
+            elif kind == "laser":
+                fire[i] = target_dist < stats["range"] and weapon.get("charge", 0) < stats["charge"] * 0.92
             elif kind == "lightning":
-                action["fire"][1] = distance < stats["range"] and me["energy"] >= stats["energy"]
+                fire[i] = target_dist < stats["range"] and me["energy"] >= stats["energy"]
             elif kind == "mortar":
-                action["fire"][1] = 25 < distance < 105
+                fire[i] = 25 < target_dist < 105
+        action["fire"] = fire
         mf.draw.label(purpose)
         return action
 

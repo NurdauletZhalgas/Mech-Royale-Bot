@@ -5,7 +5,33 @@ import math
 UPGRADES = ("armor", "plating", "gun_damage", "gun_rate", "gun_mag", "nanites",
             "laser_damage", "lightning_range", "laser_charge", "servos",
             "gun_velocity", "reactor", "jets", "capacitor", "sensors", "gyros")
-SECONDARY = {"laser": 3, "lightning": 2, "mortar": 1, "gun": 0}
+# Utility of each complete two-slot loadout. The two instant game abilities
+# complement each other at different ranges and may occupy either slot.
+LOADOUT = {frozenset(): 0,
+           frozenset(["gun"]): 20, frozenset(["mortar"]): 12,
+           frozenset(["laser"]): 40, frozenset(["lightning"]): 35,
+           frozenset(["gun", "mortar"]): 34, frozenset(["mortar", "lightning"]): 49,
+           frozenset(["laser", "mortar"]): 52, frozenset(["gun", "lightning"]): 62,
+           frozenset(["gun", "laser"]): 68, frozenset(["laser", "lightning"]): 89}
+
+
+def equipment_changes(slots):
+    owned = {w["kind"] for w in slots if w}
+    swaps = {}
+    for kind in ("laser", "lightning", "mortar", "gun"):
+        if kind in owned:
+            continue
+        best_gain = 0
+        for i, old in enumerate(slots):
+            if old and (None in slots or old.get("charge", 0)):
+                continue
+            other = slots[1 - i]
+            pair = {kind, other["kind"]} if other else {kind}
+            gain = LOADOUT[frozenset(pair)] - LOADOUT[frozenset(owned)]
+            if gain > best_gain:
+                best_gain = gain
+                swaps[kind] = (gain, i)
+    return swaps
 
 
 class Economy:
@@ -24,18 +50,20 @@ class Economy:
             choices = obs["offer"]["choices"]
             action["pick"] = min(range(len(choices)), key=lambda i:
                                  UPGRADES.index(choices[i]["id"]) if choices[i]["id"] in UPGRADES else len(UPGRADES))
-        secondary = me["weapons"][1]
-        equipped = SECONDARY.get(secondary["kind"], 0) if secondary else 0
+        slots = me["weapons"]
+        changes = equipment_changes(slots)
+        best_take = 0
         for kind, objects in (("cube", obs["cubes"]), ("weapon", obs["pickups"]), ("crate", obs["crates"])):
             for item in objects:
                 self.memory[item["id"]] = (kind, item, now)
-                if (kind == "weapon" and SECONDARY.get(item["kind"], 0) > equipped
+                if (kind == "weapon" and item["kind"] in changes
                         and abs(item["pos"][2] - pos[2]) < 4
-                        and math.dist(pos[:2], item["pos"][:2]) < self.pickup_radius
-                        and (not secondary or not secondary.get("charge", 0))):
-                    action["take"] = item["id"]
-                    if secondary:
-                        action["drop"] = 1
+                        and math.dist(pos[:2], item["pos"][:2]) < self.pickup_radius):
+                    gain, slot = changes[item["kind"]]
+                    if gain > best_take:
+                        action["take"], best_take = item["id"], gain
+                        if slots[slot]:
+                            action["drop"] = slot
         for event in obs["events"]:
             if event["type"] == "took" or (event["type"] == "take_failed" and event["reason"] == "gone"):
                 self.memory.pop(event["id"], None)
@@ -48,10 +76,10 @@ class Economy:
                 del self.memory[item_id]
                 continue
             if kind == "weapon":
-                tier = SECONDARY.get(item["kind"], 0)
-                if tier <= equipped:
+                if item["kind"] not in changes:
                     continue
-                value = (65 if equipped else 108) + tier * 14
+                gain, _ = changes[item["kind"]]
+                value = 62 + 1.9 * gain
             elif kind == "cube":
                 value = 135 if me["cubes"] < 10 else 62
             else:
@@ -64,7 +92,8 @@ class Economy:
             eta = d / me["stats"]["walk_speed"]
             if drop["lands_in"] > eta + 9:
                 continue
-            value = 165 + 120 * (1 - me["hp"] / me["max_hp"]) + 20 * drop["progress"]
+            progress = drop["progress"] if drop["holder"] == me["id"] else 0
+            value = 188 + 150 * (1 - me["hp"] / me["max_hp"]) + 20 * progress
             candidates.append((value, "drop", drop, d, 0))
         best, choice = 0, None
         for value, kind, item, d, age in candidates:
