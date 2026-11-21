@@ -1,23 +1,18 @@
-"""Choose a safe roof in the shrinking arena and collect the first available cube."""
+"""Navigate the shrinking arena, earn upgrades, and contest supply drops."""
 import math
 
 import mechfight as mf
 from arena_map import Arena, Route
+from economy import Economy
 from example_bot import Bot as Starter
 
 
 class Bot(Starter):
-    name = "roof-runner"
+    name = "quartermaster"
 
     def __init__(self, hello: mf.Hello):
         super().__init__(hello)
-        self.crate_height = hello["config"]["crates"]["height"]
-        self.regen_delay = hello["config"]["mech"]["regen_delay"]
-        self.first_shrink = hello["config"]["zone"]["phases"][0]["hold_s"]
-        self.last_damage = -math.inf
-        self.target_id = None
-        self.target_since = 0.0
-        self.abandoned = set()
+        self.economy = Economy(hello["config"])
         self.arena = Arena(hello["map"]["dir"])
         self.route = Route(self.arena)
         self.goal = None
@@ -28,75 +23,24 @@ class Bot(Starter):
         self.jet_until = -1
         self.orbit_phase = hello["slot"] * 0.39
 
-    def opening(self, obs: mf.Observation) -> mf.Action:
-        action = super().act(obs)
-        me = obs["self"]
-        now = obs["t"]
-        if any(event["type"] == "damaged" for event in obs["events"]):
-            self.last_damage = now
-        if (me["cubes"] or now >= self.first_shrink or not me["in_zone"]
-                or obs["mechs"] or now - self.last_damage < self.regen_delay):
-            self.target_id = None
-            return action
-
-        # Bound the cost of following a pickup behind a wall or on a ledge.
-        if self.target_id is not None and now - self.target_since > 6.0:
-            self.abandoned.add(self.target_id)
-            self.target_id = None
-
-        x, y, z = me["pos"]
-        zone = obs["zone"]
-        for kind, items in (("cube", obs["cubes"]), ("crate", obs["crates"])):
-            nearby = []
-            for item in items:
-                ix, iy, iz = item["pos"]
-                distance = math.hypot(ix - x, iy - y)
-                if item["id"] in self.abandoned or abs(iz - z) > 4 or distance > 40:
-                    continue
-                # Leave time to walk from the detour to the next circle.
-                return_distance = max(0.0, math.dist((ix, iy), zone["next_center"]) - zone["next_radius"])
-                travel_time = (distance + return_distance) / me["stats"]["walk_speed"]
-                if now + travel_time + 6 < zone["shrink_end"]:
-                    nearby.append((distance, item["id"], item))
-            if not nearby:
-                continue
-
-            distance, item_id, item = min(nearby, key=lambda entry: entry[:2])
-            if item_id != self.target_id:
-                self.target_id, self.target_since = item_id, now
-            ix, iy, iz = item["pos"]
-            yaw = math.atan2(iy - y, ix - x)
-            direction = 1
-            pitch = 0.0
-            fire = False
-            if kind == "crate":
-                # Give the starter gun a clear downward angle at close range.
-                direction = -1 if distance < 12 else 0 if distance < 20 else 1
-                pitch = math.atan2(iz + self.crate_height / 2 - z - me["stats"]["muzzle_height"], distance)
-                yaw_error = math.remainder(yaw - me["aim"][0], math.tau)
-                fire = abs(yaw_error) < 0.06 and abs(pitch - me["aim"][1]) < 0.06
-            action.update(move=[direction * math.cos(yaw), direction * math.sin(yaw)],
-                          aim=[yaw, pitch], fire=[fire, False], jump=False, boost=False)
-            mf.draw.label(f"first {kind} {item_id}")
-            return action
-
-        self.target_id = None
-        return action
 
     def act(self, obs: mf.Observation) -> mf.Action:
-        action = self.opening(obs)
-        if self.target_id is not None:
-            return action
+        action = super().act(obs)
+        action.pop("take", None)
         me, zone, now = obs["self"], obs["zone"], obs["t"]
         x, y, z = me["pos"]
         if now >= self.plan_at or self.phase != zone["shrink_end"]:
             self.goal = self.arena.retreat(me["pos"], zone, self.goal)
             self.plan_at = now + 3
             self.phase = zone["shrink_end"]
-        wx, wy, top = self.route.waypoint(me["pos"], self.goal, now)
-        goal_dist = math.dist((x, y), self.goal)
-        arrived = goal_dist < 7 and abs(z - self.arena.height[self.arena.cell(*self.goal)]) < 3
-        if arrived:
+        choice = self.economy.select(obs, action)
+        purpose, item = choice if choice else ("roof", None)
+        goal = tuple(item["pos"][:2]) if item else self.goal
+        wx, wy, top = self.route.waypoint(me["pos"], goal, now)
+        goal_dist = math.dist((x, y), goal)
+        goal_z = item["pos"][2] if item else self.arena.height[self.arena.cell(*goal)]
+        arrived = goal_dist < 7 and abs(z - goal_z) < 3
+        if arrived and purpose == "roof":
             # Keep moving on broad rooftops, within the next circle and away from ledges.
             phase = self.orbit_phase + now * 0.52
             reach = min(7.5, max(0, zone["next_radius"] - 3))
@@ -107,6 +51,10 @@ class Bot(Starter):
                 wx, wy = ox, oy
             else:
                 wx, wy = self.goal
+        elif goal_dist < 10 and item:
+            wx, wy, top = *goal, goal_z
+        if purpose == "drop" and goal_dist < item["radius"] * 0.65 and abs(z - goal_z) < 4:
+            wx, wy = x, y
         dx, dy = wx - x, wy - y
         distance = math.hypot(dx, dy)
         if now >= self.check_motion_at:
@@ -125,10 +73,43 @@ class Bot(Starter):
         scale = max(distance, 3)
         action.update(move=[dx / scale, dy / scale], jump=jet and me["grounded"],
                       boost=(jet and me["energy"] > 1) or sprint)
-        if not any(m["kind"] == "mech" for m in obs["mechs"]):
+        opponents = [m for m in obs["mechs"] if m["kind"] == "mech"]
+        if not opponents:
             action["aim"] = [self.orbit_phase + now * 1.8 if arrived else math.atan2(dy, dx), 0]
-        mf.draw.label("roof" if arrived else "climb" if jet else "route")
+        visible_crate = purpose == "crate" and any(c["id"] == item["id"] for c in obs["crates"])
+        if not opponents and visible_crate:
+            self.aim_at_prop(action, me, item["pos"], self.economy.crate_height * 0.5)
+            if goal_dist < 27 and abs(goal_z - z) < 4:
+                factor = -1 if goal_dist < 12 else 0
+                action.update(move=[factor * math.cos(action["aim"][0]), factor * math.sin(action["aim"][0])],
+                              jump=False, boost=False)
+        elif not opponents and obs["mechs"]:
+            drone = min(obs["mechs"], key=lambda m: math.dist(m["pos"], me["pos"]))
+            self.aim_at_prop(action, me, drone["pos"], 1.75)
+        if not obs["mechs"] and not visible_crate:
+            gun = me["weapons"][0]
+            if gun and gun["kind"] == "gun" and gun.get("ammo", 99) < gun["stats"]["mag"] * 0.7:
+                action["reload"] = True
+        secondary = me["weapons"][1]
+        if secondary and opponents:
+            distance = min(math.dist(m["pos"], me["pos"]) for m in opponents)
+            kind, stats = secondary["kind"], secondary["stats"]
+            if kind == "laser":
+                action["fire"][1] = distance < stats["range"] and secondary.get("charge", 0) < stats["charge"] * 0.92
+            elif kind == "lightning":
+                action["fire"][1] = distance < stats["range"] and me["energy"] >= stats["energy"]
+            elif kind == "mortar":
+                action["fire"][1] = 25 < distance < 105
+        mf.draw.label(purpose)
         return action
+
+    @staticmethod
+    def aim_at_prop(action, me, pos, height):
+        x, y, z = me["pos"]
+        dx, dy = pos[0] - x, pos[1] - y
+        action["aim"] = [math.atan2(dy, dx), math.atan2(pos[2] + height - z - me["stats"]["muzzle_height"],
+                                                        math.hypot(dx, dy))]
+        action["fire"] = [True, False]
 
 
 if __name__ == "__main__":
