@@ -4,16 +4,18 @@ import math
 import mechfight as mf
 from arena_map import Arena, Route
 from economy import Economy
+from mobility import Movement
 from example_bot import Bot as Starter
 
 
 class Bot(Starter):
-    name = "quartermaster"
+    name = "carousel"
 
     def __init__(self, hello: mf.Hello):
         super().__init__(hello)
         self.economy = Economy(hello["config"])
         self.arena = Arena(hello["map"]["dir"])
+        self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
         self.goal = None
         self.plan_at = 0
@@ -74,8 +76,11 @@ class Bot(Starter):
         action.update(move=[dx / scale, dy / scale], jump=jet and me["grounded"],
                       boost=(jet and me["energy"] > 1) or sprint)
         opponents = [m for m in obs["mechs"] if m["kind"] == "mech"]
+        if opponents:
+            closest = min(opponents, key=lambda m: math.dist(m["pos"], me["pos"]))
+            self.movement.duel(obs, closest, goal, purpose, action)
         if not opponents:
-            action["aim"] = [self.orbit_phase + now * 1.8 if arrived else math.atan2(dy, dx), 0]
+            action["aim"] = [self.orbit_phase + now * 1.8, 0]
         visible_crate = purpose == "crate" and any(c["id"] == item["id"] for c in obs["crates"])
         if not opponents and visible_crate:
             self.aim_at_prop(action, me, item["pos"], self.economy.crate_height * 0.5)
