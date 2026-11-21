@@ -4,6 +4,7 @@ import math
 import mechfight as mf
 from arena_map import Arena, Route
 from economy import Economy
+from endgame import Placement, circle_priority
 from mobility import Movement
 
 
@@ -12,6 +13,7 @@ class Bot:
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
+        self.placement = Placement(hello["config"]["vision"]["near_range"])
         self.mech_height = hello["config"]["mech"]["height"]
         self.cube_growth = hello["config"]["cubes"]["size_per_cube"]
         self.drone_height = hello["config"]["npc"]["height"]
@@ -37,9 +39,14 @@ class Bot:
             self.goal = self.arena.retreat(me["pos"], zone, self.goal)
             self.plan_at = now + 3
             self.phase = zone["shrink_end"]
-        choice = self.economy.select(obs, action)
+        opponents = [m for m in obs["mechs"] if m["kind"] == "mech"]
+        bank_health = self.placement.recover(obs, opponents)
+        protect_circle = zone["next_radius"] == 0 and circle_priority(obs)
+        choice = self.economy.select(obs, action, bank_health)
         purpose, item = choice if choice else ("roof", None)
         goal = tuple(item["pos"][:2]) if item else self.goal
+        if protect_circle:
+            purpose, item, goal = "circle", None, tuple(zone["next_center"])
         wx, wy, top = self.route.waypoint(me["pos"], goal, now)
         goal_dist = math.dist((x, y), goal)
         goal_z = item["pos"][2] if item else self.arena.height[self.arena.cell(*goal)]
@@ -57,6 +64,8 @@ class Bot:
                 wx, wy = self.goal
         elif goal_dist < 10 and item:
             wx, wy, top = *goal, goal_z
+        elif purpose == "circle" and goal_dist < 9:
+            wx, wy = goal
         if (purpose == "drop" and me["grounded"] and goal_dist < item["radius"] * 0.65
                 and abs(z - goal_z) < 2):
             wx, wy = x, y
@@ -84,7 +93,6 @@ class Bot:
         scale = max(distance, 3)
         action.update(move=[dx / scale, dy / scale], jump=jet and me["grounded"],
                       boost=(jet and me["energy"] > 1) or sprint)
-        opponents = [m for m in obs["mechs"] if m["kind"] == "mech"]
         nearest_dist = min((math.dist(a["pos"], me["pos"]) for a in opponents), default=math.inf)
         hp_fraction = me["hp"] / max(me["max_hp"], 1)
         if hp_fraction < 0.47:
@@ -97,7 +105,8 @@ class Bot:
             nearest = min(opponents, key=lambda a: math.dist(a["pos"], me["pos"]))
             enemy = self.choose_opponent(opponents, me)
             self.focus = enemy["id"]
-            self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
+            if not (bank_health or protect_circle):
+                self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
             height = self.mech_height * (1 + self.cube_growth * enemy.get("cubes", 0))
             self.aim_at_prop(action, me, enemy["pos"], height * 0.5)
             target_dist = math.dist(enemy["pos"], me["pos"])
@@ -123,6 +132,8 @@ class Bot:
             if purpose == "crate" and not opponents:
                 action["move"] = [0.0, 0.0]
                 action["jump"] = action["boost"] = False
+        if bank_health:
+            target_dist = math.inf
         if not me["in_zone"] and not opponents:
             # Zone damage disables regeneration; spend the turn getting inside.
             target_dist = math.inf

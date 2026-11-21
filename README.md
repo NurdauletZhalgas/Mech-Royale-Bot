@@ -46,4 +46,15 @@ On November 21, 2026, Builders scored team **anti-67** at **1.27** over 48 pract
 
 The final rewards the highest average placement score over 64 free-for-all matches on fresh seeds. Practice uses 15 cooperating house mechs. Use the best scored commit as the baseline, compare changes on matched local scenarios, and record official results for each candidate. The rules allow four submissions per rolling hour.
 
+## Placement strategy candidate
+
+This branch starts from the 5.06 entry. While the field is stable it uses that bot’s approach to encounters. When rivals are eliminating each other, an injured bot inside the circle can let its regeneration timer run. Incoming damage, a close rival, or a vulnerable rival within reach cancels the pause. Announced supply drops offer three cubes and a full repair, so the bot credits the distance it can cover before landing. When the last circle closes, it keeps its movement pointed into the safe area whenever its projected position is at risk.
+
+| Matched local scenario | 5.06 entry | Placement candidate |
+| --- | ---: | ---: |
+| Announced drop captured within 7 seconds of landing, stationary rival, 96 layouts | 59 | 89 |
+| Storm HP lost on average in the final shrink, 3 survivors, 32 open-ground layouts | 548.4 | 0.0 |
+
+Reproduce the scenarios with `python check/objectives.py --announced --opponent --seed 945837 --trials 96` and `python check/closing_circle.py --alive 3 --seed 99467 --trials 32`. Both accept `--bot-root` for testing a different checkout on identical layouts. Opponents in these movement drills deal no damage. `python check/placement.py` exercises the recovery decision in 11 controlled game states. Official placement comes from the Builders scorer.
+
 The exact game mechanics and message formats are in [protocol.md](protocol.md). The event brief is on the [Mech Royale track page](https://www.joinbuilders.org/buildathon/tracks/builders).

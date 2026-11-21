@@ -2,6 +2,43 @@
 import math
 
 
+class Placement:
+    """Use changes in the surviving field to decide when to bank a free heal."""
+
+    def __init__(self, near_range):
+        self.near_range = near_range
+        self.alive = None
+        self.last_other_elimination = -math.inf
+        self.last_damage = -math.inf
+        self.healing = False
+
+    def recover(self, obs, opponents):
+        me, now, alive = obs["self"], obs["t"], obs["alive"]
+        own_eliminations = sum(event["type"] == "kill" for event in obs["events"])
+        if self.alive is not None and self.alive - alive > own_eliminations:
+            self.last_other_elimination = now
+        self.alive = alive
+        if any(e["type"] == "damaged" for e in obs["events"]):
+            self.last_damage = now
+
+        stats = me["stats"]
+        # Compare the missing health to the value and duration of a regen window.
+        missing = me["max_hp"] - me["hp"]
+        worthwhile = missing >= (0.12 if self.healing else 0.24) * me["max_hp"]
+        window = stats["regen_delay"] + min(12, missing / max(1, stats["regen_per_s"]))
+        self.healing = (alive >= 3 and worthwhile and me["in_zone"]
+                        and now - self.last_other_elimination <= window
+                        and now - self.last_damage >= 0.5 * stats["regen_delay"])
+        if self.healing:
+            for rival in opponents:
+                distance = math.dist(me["pos"], rival["pos"])
+                weak = rival.get("hp", me["max_hp"]) <= 0.2 * rival.get("max_hp", me["max_hp"])
+                if distance <= self.near_range or (weak and distance <= 3 * self.near_range):
+                    self.healing = False
+                    break
+        return self.healing
+
+
 def circle_priority(obs):
     zone, me, now = obs["zone"], obs["self"], obs["t"]
     r, end_r = zone["radius"], zone["next_radius"]

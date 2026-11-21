@@ -43,7 +43,7 @@ class Economy:
         self.chosen = None
         self.started = 0
 
-    def select(self, obs, action):
+    def select(self, obs, action, bank_health=False):
         me, now, zone = obs["self"], obs["t"], obs["zone"]
         pos = me["pos"]
         if obs["offer"]:
@@ -83,7 +83,7 @@ class Economy:
             elif kind == "cube":
                 value = 135 if me["cubes"] < 10 else 62
             else:
-                if nearby_enemy < 90 or me["cubes"] >= 10 or d > 62:
+                if bank_health or nearby_enemy < 90 or me["cubes"] >= 10 or d > 62:
                     continue
                 value = 71
             candidates.append((value, kind, item, d, now - seen))
@@ -92,8 +92,17 @@ class Economy:
             eta = d / me["stats"]["walk_speed"]
             if drop["lands_in"] > eta + 9:
                 continue
+            if drop["holder"] not in (None, me["id"]):
+                earliest = max(0, d - drop["radius"]) / me["stats"]["boost_speed"]
+                if earliest > drop["capture_s"] - drop["progress"]:
+                    continue
             progress = drop["progress"] if drop["holder"] == me["id"] else 0
             value = 188 + 150 * (1 - me["hp"] / me["max_hp"]) + 20 * progress
+            # Time spent traveling before a drop lands can bring us to the ring
+            # for its first capture. Allow for terrain and keep part of the
+            # travel cost so a convenient nearby objective can still win.
+            approach = min(d, drop["lands_in"] * me["stats"]["walk_speed"])
+            value += 0.65 * approach
             candidates.append((value, "drop", drop, d, 0))
         best, choice = 0, None
         for value, kind, item, d, age in candidates:

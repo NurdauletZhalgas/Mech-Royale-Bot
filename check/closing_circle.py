@@ -15,7 +15,7 @@ import statistics
 import sys
 
 
-def run_trial(bot, obs, rng, center, radius, phase):
+def run_trial(bot, obs, rng, center, radius, phase, alive=3):
     me, zone = obs["self"], obs["zone"]
     angle = rng.uniform(-math.pi, math.pi)
     end_radius = phase["radius"]
@@ -32,7 +32,7 @@ def run_trial(bot, obs, rng, center, radius, phase):
     level = bot.arena.height[bot.arena.cell(*center)]
     rivals = [rng.uniform(-math.pi, math.pi) for _ in range(2)]
     obs.update(crates=[], pickups=[], cubes=[], drops=[], sounds=[], events=[], beams=[], projectiles=[],
-               alive=3, offer=None)
+               alive=alive, offer=None)
     start = 300.0
     for tick in range(round(duration/dt)):
         elapsed = tick * dt
@@ -68,13 +68,16 @@ def main():
     parser.add_argument("--bot-root", type=Path, default=Path(__file__).resolve().parents[1])
     parser.add_argument("--seed", type=int, default=7289)
     parser.add_argument("--trials", type=int, default=24)
+    parser.add_argument("--alive", type=int, choices=range(3, 17), default=3,
+                        help="Size of the surviving field, including the two visible opponents")
     args = parser.parse_args()
     root = args.bot_root.resolve()
     sys.path.insert(0, str(root))
     from bot import Bot
-    with gzip.open(root / "check" / "stream.jsonl.gz", "rt") as stream:
+    kit = Path(__file__).resolve().parents[1]
+    with gzip.open(kit / "check" / "stream.jsonl.gz", "rt") as stream:
         hello, fixture = json.loads(next(stream)), json.loads(next(stream))
-    hello["map"]["dir"] = str(root/"arena")
+    hello["map"]["dir"] = str(kit/"arena")
     rng = random.Random(args.seed)
     phases = hello["config"]["zone"]["phases"]
     for previous, phase in zip(phases[-3:-1], phases[-2:]):
@@ -88,7 +91,7 @@ def main():
                            for i in (-36,-18,0,18,36) for j in (-36,-18,0,18,36)]
                 if max(heights)-min(heights) < 4 and abs(center[0]) < 380 and abs(center[1]) < 220:
                     break
-            results.append(run_trial(bot, copy.deepcopy(fixture), rng, center, previous["radius"], phase))
+            results.append(run_trial(bot, copy.deepcopy(fixture), rng, center, previous["radius"], phase, args.alive))
         print(f'{previous["radius"]} to {phase["radius"]} m: mean zone damage {statistics.mean(results):.1f}, '
               f'max {max(results):.1f}, zero damage {results.count(0.0)}/{len(results)}', flush=True)
 
