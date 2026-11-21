@@ -4,11 +4,12 @@ import math
 import mechfight as mf
 from arena_map import Arena, Route
 from economy import Economy
+from endgame import circle_priority
 from mobility import Movement
 
 
 class Bot:
-    name = "capacitor"
+    name = "last-circle"
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
@@ -18,6 +19,8 @@ class Bot:
         self.focus = None
         self.recovering = False
         self.arc_recharging = False
+        self.facing_alert = 0
+        self.facing_until = -1
         self.arena = Arena(hello["map"]["dir"])
         self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
@@ -41,6 +44,10 @@ class Bot:
         choice = self.economy.select(obs, action)
         purpose, item = choice if choice else ("roof", None)
         goal = tuple(item["pos"][:2]) if item else self.goal
+        protect_circle = circle_priority(obs)
+        if protect_circle:
+            purpose, item = "circle", None
+            goal = tuple(zone["next_center"])
         wx, wy, top = self.route.waypoint(me["pos"], goal, now)
         goal_dist = math.dist((x, y), goal)
         goal_z = item["pos"][2] if item else self.arena.height[self.arena.cell(*goal)]
@@ -58,6 +65,9 @@ class Bot:
                 wx, wy = self.goal
         elif goal_dist < 10 and item:
             wx, wy, top = *goal, goal_z
+        if purpose == "circle" and goal_dist < 9:
+            # Path cells are six metres wide. The last circle closes to a point.
+            wx, wy = goal
         if (purpose == "drop" and me["grounded"] and goal_dist < item["radius"] * 0.65
                 and abs(z - goal_z) < 2):
             wx, wy = x, y
@@ -92,27 +102,39 @@ class Bot:
             self.recovering = True
         elif hp_fraction > 0.85:
             self.recovering = False
-        action["aim"] = [self.orbit_phase + now * 1.8, 0]
+        for event in obs["events"]:
+            if event["type"] == "damaged" and event.get("bearing") is not None:
+                self.facing_alert, self.facing_until = event["bearing"], now + 1.6
+        if now > self.facing_until and not opponents:
+            warning = next((s for s in obs["sounds"] if s["dist"] != "far" and s["age"] < 0.4
+                            and s["kind"] in ("laser_charge", "lightning", "gun")), None)
+            if warning:
+                self.facing_alert, self.facing_until = warning["bearing"], now + 0.45
+        # Torso yaw drives the vision wedge and the game's front-armour modifier.
+        scan = self.facing_alert if now <= self.facing_until else self.orbit_phase + now * 2.7
+        action["aim"] = [scan, 0]
         target_dist = math.inf
         if opponents:
             nearest = min(opponents, key=lambda a: math.dist(a["pos"], me["pos"]))
             enemy = self.choose_opponent(opponents, me)
             self.focus = enemy["id"]
-            self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
+            if not protect_circle:
+                self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
             height = self.mech_height * (1 + self.cube_growth * enemy.get("cubes", 0))
             self.aim_at_prop(action, me, enemy["pos"], height * 0.5)
             target_dist = math.dist(enemy["pos"], me["pos"])
         else:
             self.focus = None
         visible_crate = purpose == "crate" and any(c["id"] == item["id"] for c in obs["crates"])
-        if not opponents and visible_crate:
+        can_farm = not opponents and now > self.facing_until
+        if can_farm and visible_crate:
             self.aim_at_prop(action, me, item["pos"], self.economy.crate_height * 0.5)
             target_dist = math.dist(item["pos"], me["pos"])
             if goal_dist < 27 and abs(goal_z - z) < 4:
                 factor = -1 if goal_dist < 12 else 0
                 action.update(move=[factor * math.cos(action["aim"][0]), factor * math.sin(action["aim"][0])],
                               jump=False, boost=False)
-        elif not opponents and obs["mechs"]:
+        elif can_farm and obs["mechs"]:
             drone = min(obs["mechs"], key=lambda m: math.dist(m["pos"], me["pos"]))
             self.aim_at_prop(action, me, drone["pos"], self.drone_height * 0.5)
             target_dist = math.dist(drone["pos"], me["pos"])

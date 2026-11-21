@@ -92,6 +92,10 @@ class Economy:
             eta = d / me["stats"]["walk_speed"]
             if drop["lands_in"] > eta + 9:
                 continue
+            if drop["holder"] not in (None, me["id"]):
+                time_to_ring = max(0, d - drop["radius"]) / me["stats"]["boost_speed"]
+                if time_to_ring > drop["capture_s"] - drop["progress"] + 0.3:
+                    continue
             progress = drop["progress"] if drop["holder"] == me["id"] else 0
             value = 188 + 150 * (1 - me["hp"] / me["max_hp"]) + 20 * progress
             candidates.append((value, "drop", drop, d, 0))
