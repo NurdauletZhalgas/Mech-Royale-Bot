@@ -9,7 +9,7 @@ class Movement:
         self.sprinting = False
         self.jump_at = 0
 
-    def duel(self, obs, enemy, goal, purpose, action):
+    def duel(self, obs, enemy, goal, purpose, action, recovering=False, opponents=1):
         me, zone, now = obs["self"], obs["zone"], obs["t"]
         x, y, z = me["pos"]
         ex, ey, _ = enemy["pos"]
@@ -20,6 +20,10 @@ class Movement:
         # Keep moving while the torso stays on the game's opponent. Shorter circles suit lightning.
         has_lightning = any(w and w["kind"] == "lightning" for w in me["weapons"])
         ideal = 30 if has_lightning else 47
+        if recovering and enemy.get("hp", 1000) > me["max_hp"] * 0.3:
+            ideal = max(ideal, 95)
+        if opponents >= 3:
+            ideal += 22
         radial = max(-1.0, min(1.35, (distance - ideal) / 29))
         dx, dy = dx / distance, dy / distance
         if purpose == "drop" and math.dist((x, y), goal) < 6:

@@ -5,15 +5,18 @@ import mechfight as mf
 from arena_map import Arena, Route
 from economy import Economy
 from mobility import Movement
-from example_bot import Bot as Starter
 
 
-class Bot(Starter):
-    name = "twin-core"
+class Bot:
+    name = "long-game"
 
     def __init__(self, hello: mf.Hello):
-        super().__init__(hello)
         self.economy = Economy(hello["config"])
+        self.mech_height = hello["config"]["mech"]["height"]
+        self.cube_growth = hello["config"]["cubes"]["size_per_cube"]
+        self.drone_height = hello["config"]["npc"]["height"]
+        self.focus = None
+        self.recovering = False
         self.arena = Arena(hello["map"]["dir"])
         self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
@@ -27,8 +30,7 @@ class Bot(Starter):
         self.orbit_phase = hello["slot"] * 0.39
 
     def act(self, obs: mf.Observation) -> mf.Action:
-        action = super().act(obs)
-        action.pop("take", None)
+        action = {"tick": obs["tick"]}
         me, zone, now = obs["self"], obs["zone"], obs["t"]
         x, y, z = me["pos"]
         if now >= self.plan_at or self.phase != zone["shrink_end"]:
@@ -83,28 +85,46 @@ class Bot(Starter):
         action.update(move=[dx / scale, dy / scale], jump=jet and me["grounded"],
                       boost=(jet and me["energy"] > 1) or sprint)
         opponents = [m for m in obs["mechs"] if m["kind"] == "mech"]
+        nearest_dist = min((math.dist(a["pos"], me["pos"]) for a in opponents), default=math.inf)
+        hp_fraction = me["hp"] / max(me["max_hp"], 1)
+        if hp_fraction < 0.47:
+            self.recovering = True
+        elif hp_fraction > 0.85:
+            self.recovering = False
+        action["aim"] = [self.orbit_phase + now * 1.8, 0]
+        target_dist = math.inf
         if opponents:
-            closest = min(opponents, key=lambda m: math.dist(m["pos"], me["pos"]))
-            self.movement.duel(obs, closest, goal, purpose, action)
-        if not opponents:
-            action["aim"] = [self.orbit_phase + now * 1.8, 0]
+            nearest = min(opponents, key=lambda a: math.dist(a["pos"], me["pos"]))
+            enemy = self.choose_opponent(opponents, me)
+            self.focus = enemy["id"]
+            self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
+            height = self.mech_height * (1 + self.cube_growth * enemy.get("cubes", 0))
+            self.aim_at_prop(action, me, enemy["pos"], height * 0.5)
+            target_dist = math.dist(enemy["pos"], me["pos"])
+        else:
+            self.focus = None
         visible_crate = purpose == "crate" and any(c["id"] == item["id"] for c in obs["crates"])
         if not opponents and visible_crate:
             self.aim_at_prop(action, me, item["pos"], self.economy.crate_height * 0.5)
+            target_dist = math.dist(item["pos"], me["pos"])
             if goal_dist < 27 and abs(goal_z - z) < 4:
                 factor = -1 if goal_dist < 12 else 0
                 action.update(move=[factor * math.cos(action["aim"][0]), factor * math.sin(action["aim"][0])],
                               jump=False, boost=False)
         elif not opponents and obs["mechs"]:
             drone = min(obs["mechs"], key=lambda m: math.dist(m["pos"], me["pos"]))
-            self.aim_at_prop(action, me, drone["pos"], 1.75)
-        if opponents:
-            target_dist = math.dist(closest["pos"], me["pos"])
-        elif visible_crate:
-            target_dist = math.dist(item["pos"], me["pos"])
-        elif obs["mechs"]:
+            self.aim_at_prop(action, me, drone["pos"], self.drone_height * 0.5)
             target_dist = math.dist(drone["pos"], me["pos"])
-        else:
+        if self.recovering and me["in_zone"] and nearest_dist > 110:
+            # Dealing any damage resets the game's HP regeneration timer.
+            # Leave ambient drones and crates alone until recovery finishes.
+            if not opponents or enemy.get("hp", me["max_hp"]) > me["max_hp"] * 0.30:
+                target_dist = math.inf
+            if purpose == "crate" and not opponents:
+                action["move"] = [0.0, 0.0]
+                action["jump"] = action["boost"] = False
+        if not me["in_zone"] and not opponents:
+            # Zone damage disables regeneration; spend the turn getting inside.
             target_dist = math.inf
         fire = [False, False]
         for i, weapon in enumerate(me["weapons"]):
@@ -122,8 +142,20 @@ class Bot(Starter):
             elif kind == "mortar":
                 fire[i] = 25 < target_dist < 105
         action["fire"] = fire
-        mf.draw.label(purpose)
+        mf.draw.label("recover" if self.recovering and target_dist == math.inf else purpose)
         return action
+
+    def choose_opponent(self, opponents, me):
+        def priority(actor):
+            d = math.dist(me["pos"], actor["pos"])
+            remaining = actor.get("hp", me["max_hp"])
+            # In this game an elimination immediately improves placement, and
+            # the defeated mech drops its accumulated cubes and two more.
+            cost = 0.085 * remaining + 0.65 * d + max(0, d - 140)
+            if actor["id"] == self.focus:
+                cost -= 15
+            return cost
+        return min(opponents, key=priority)
 
     @staticmethod
     def aim_at_prop(action, me, pos, height):
@@ -131,7 +163,6 @@ class Bot(Starter):
         dx, dy = pos[0] - x, pos[1] - y
         action["aim"] = [math.atan2(dy, dx), math.atan2(pos[2] + height - z - me["stats"]["muzzle_height"],
                                                         math.hypot(dx, dy))]
-        action["fire"] = [True, False]
 
 
 if __name__ == "__main__":
