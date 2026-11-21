@@ -4,12 +4,11 @@ import math
 import mechfight as mf
 from arena_map import Arena, Route
 from economy import Economy
-from endgame import circle_priority
 from mobility import Movement
 
 
 class Bot:
-    name = "compound"
+    name = "collector"
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
@@ -41,10 +40,6 @@ class Bot:
         choice = self.economy.select(obs, action)
         purpose, item = choice if choice else ("roof", None)
         goal = tuple(item["pos"][:2]) if item else self.goal
-        protect_circle = obs["alive"] <= 3 and zone["radius"] <= 70 and circle_priority(obs)
-        if protect_circle:
-            purpose, item = "circle", None
-            goal = tuple(zone["next_center"])
         wx, wy, top = self.route.waypoint(me["pos"], goal, now)
         goal_dist = math.dist((x, y), goal)
         goal_z = item["pos"][2] if item else self.arena.height[self.arena.cell(*goal)]
@@ -62,8 +57,6 @@ class Bot:
                 wx, wy = self.goal
         elif goal_dist < 10 and item:
             wx, wy, top = *goal, goal_z
-        if purpose == "circle" and goal_dist < 9:
-            wx, wy = goal
         if (purpose == "drop" and me["grounded"] and goal_dist < item["radius"] * 0.65
                 and abs(z - goal_z) < 2):
             wx, wy = x, y
@@ -104,8 +97,7 @@ class Bot:
             nearest = min(opponents, key=lambda a: math.dist(a["pos"], me["pos"]))
             enemy = self.choose_opponent(opponents, me)
             self.focus = enemy["id"]
-            if not protect_circle:
-                self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
+            self.movement.duel(obs, nearest, goal, purpose, action, self.recovering, len(opponents))
             height = self.mech_height * (1 + self.cube_growth * enemy.get("cubes", 0))
             self.aim_at_prop(action, me, enemy["pos"], height * 0.5)
             target_dist = math.dist(enemy["pos"], me["pos"])
