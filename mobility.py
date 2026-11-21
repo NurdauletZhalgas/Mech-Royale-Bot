@@ -26,11 +26,16 @@ class Movement:
             ideal += 22
         radial = max(-1.0, min(1.35, (distance - ideal) / 29))
         dx, dy = dx / distance, dy / distance
-        if purpose == "drop" and math.dist((x, y), goal) < 6:
-            return
-        goal_weight = 0.65 if purpose in ("cube", "weapon", "drop") else 0.12
-        if purpose in ("cube", "weapon") and math.dist((x, y), goal) < 12:
-            return
+        collecting = purpose in ("cube", "weapon", "drop")
+        if collecting:
+            # Finishing the last few metres matters: pickups have a vertical
+            # limit, and the drop capture clock needs four continuous seconds.
+            goal_dist = math.dist((x, y), goal)
+            if goal_dist < 17 or action["jump"] or (action["boost"] and not me["grounded"]):
+                return
+            goal_weight = 3.2 if purpose == "drop" else 2.5
+        else:
+            goal_weight = 0.12
         gx, gy = action["move"]
         candidates = []
         for side in (self.side, -self.side):

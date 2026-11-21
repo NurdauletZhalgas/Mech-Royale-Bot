@@ -20,7 +20,7 @@ from bot import Bot
 from mechfight import draw
 
 
-def trial(hello, fixture, kind, rng):
+def trial(hello, fixture, kind, rng, opponent=False):
     bot = Bot(hello)
     arena = bot.arena
     obs = copy.deepcopy(fixture)
@@ -39,6 +39,12 @@ def trial(hello, fixture, kind, rng):
         if valid_surface and math.dist((x, y), (tx, ty)) > 18 and abs(tz - z) < 36:
             break
     obj = {"id": 20001, "pos": [tx, ty, tz]}
+    if opponent:
+        a = rng.uniform(-math.pi, math.pi)
+        ex, ey = arena.xy(arena.cell(tx + 50 * math.cos(a), ty + 50 * math.sin(a)))
+        obs["mechs"] = [{"kind": "mech", "id": (me["id"] + 1) % 16, "hp": 1400,
+                         "pos": [ex, ey, arena.height[arena.cell(ex, ey)]],
+                         "vel": [0, 0, 0], "aim": [0, 0]}]
     if kind == "drop":
         obj.update(radius=8, holder=None, progress=0, capture_s=4, lands_in=0)
         obs["drops"] = [obj]
@@ -109,13 +115,14 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--trials", type=int, default=24, help="Trials per objective")
     ap.add_argument("--seed", type=int, default=7081)
+    ap.add_argument("--opponent", action="store_true", help="Show a stationary mech without applying damage")
     args = ap.parse_args()
     with gzip.open(ROOT / "check" / "stream.jsonl.gz", "rt") as stream:
         hello, fixture = json.loads(next(stream)), json.loads(next(stream))
     hello["map"]["dir"] = str(ROOT / "arena")
     for kind in ("cube", "weapon", "drop"):
         rng = random.Random(args.seed)
-        times = [trial(hello, fixture, kind, rng) for _ in range(args.trials)]
+        times = [trial(hello, fixture, kind, rng, args.opponent) for _ in range(args.trials)]
         reached = [v for v in times if v is not None]
         median = f"{statistics.median(reached):.1f}s" if reached else "n/a"
         print(f"{kind}: {len(reached)}/{len(times)} reached in 40s, median {median}", flush=True)

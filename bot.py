@@ -8,7 +8,7 @@ from mobility import Movement
 
 
 class Bot:
-    name = "long-game"
+    name = "collector"
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
