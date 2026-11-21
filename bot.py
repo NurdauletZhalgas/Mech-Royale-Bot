@@ -2,7 +2,7 @@
 import math
 
 import mechfight as mf
-from arena_map import Arena, Route
+from arena_map import Arena, OpeningSearch, Route
 from economy import Economy
 from mobility import Movement
 
@@ -18,6 +18,8 @@ class Bot:
         self.focus = None
         self.recovering = False
         self.arena = Arena(hello["map"]["dir"])
+        self.search = OpeningSearch(self.arena, hello["slot"])
+        self.opening_ends = hello["config"]["zone"]["phases"][0]["hold_s"]
         self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
         self.goal = None
@@ -40,6 +42,11 @@ class Bot:
         choice = self.economy.select(obs, action)
         purpose, item = choice if choice else ("roof", None)
         goal = tuple(item["pos"][:2]) if item else self.goal
+        if (item is None and now < self.opening_ends and None in me["weapons"]
+                and me["in_zone"] and me["hp"] >= 0.75 * me["max_hp"]
+                and not any(actor["kind"] == "mech" for actor in obs["mechs"])):
+            goal = self.search.destination(me["pos"], zone, now)
+            purpose = "search"
         wx, wy, top = self.route.waypoint(me["pos"], goal, now)
         goal_dist = math.dist((x, y), goal)
         goal_z = item["pos"][2] if item else self.arena.height[self.arena.cell(*goal)]

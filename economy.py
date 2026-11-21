@@ -38,6 +38,7 @@ class Economy:
     def __init__(self, config):
         self.pickup_radius = config["loot"]["pickup_radius"]
         self.crate_height = config["crates"]["height"]
+        self.opening_ends = config["zone"]["phases"][0]["hold_s"]
         self.memory = {}
         self.ignored = {}
         self.chosen = None
@@ -80,6 +81,8 @@ class Economy:
                     continue
                 gain, _ = changes[item["kind"]]
                 value = 62 + 1.9 * gain
+                if None in slots and now < self.opening_ends:
+                    value += 48
             elif kind == "cube":
                 value = 135 if me["cubes"] < 10 else 62
             else:

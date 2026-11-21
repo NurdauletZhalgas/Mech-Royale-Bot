@@ -95,6 +95,39 @@ class Arena:
         return best
 
 
+class OpeningSearch:
+    """Look for an empty slot's first pickup in nearby, unexplored sectors."""
+
+    def __init__(self, arena, slot):
+        self.arena = arena
+        self.direction = slot * math.tau / 16
+        self.visited = []
+        self.goal = None
+        self.until = 0
+
+    def destination(self, pos, zone, now):
+        x, y, z = pos
+        if self.goal is not None and now < self.until and math.dist((x, y), self.goal) > 9:
+            return self.goal
+        self.visited.append((x, y))
+        best = -math.inf
+        for i in range(12):
+            angle = self.direction + i * math.tau / 12
+            dx, dy = math.cos(angle), math.sin(angle)
+            end = self.arena.cell(x + 80 * dx, y + 80 * dy)
+            target = self.arena.xy(end)
+            heights = [self.arena.height[self.arena.cell(x + d*dx, y + d*dy)] for d in (18, 36, 54, 72)]
+            climb = max(0.0, max(heights + [self.arena.height[end]]) - z)
+            clearance = min(math.dist(target, p) for p in self.visited)
+            outside = max(0, math.dist(target, zone["next_center"]) - zone["next_radius"])
+            score = min(95, clearance) - 1.5 * climb - 1.8 * outside
+            if score > best:
+                best, self.goal = score, target
+        self.direction += math.pi / 4
+        self.until = now + 8.0
+        return self.goal
+
+
 class Route:
     """Spread grid search over decisions to stay inside the match time limit."""
     def __init__(self, arena):

@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from bot import Bot
 from mechfight import draw
+from motion import advance
 
 
 def trial(hello, fixture, kind, rng, opponent=False):
@@ -26,7 +27,6 @@ def trial(hello, fixture, kind, rng, opponent=False):
     obs = copy.deepcopy(fixture)
     obs.update(mechs=[], cubes=[], pickups=[], crates=[], drops=[], events=[], sounds=[], projectiles=[], offer=None)
     me = obs["self"]
-    stats = me["stats"]
     for _ in range(1000):
         cell = rng.randrange(len(arena.height))
         x, y = arena.xy(cell)
@@ -56,15 +56,13 @@ def trial(hello, fixture, kind, rng, opponent=False):
     # The whole short trial is inside the current circle.
     obs["zone"].update(center=[tx, ty], radius=400, next_center=[tx, ty], next_radius=300,
                        shrink_start=60, shrink_end=120)
-    vx = vy = vz = 0.0
+    me.update(pos=[x,y,z], vel=[0,0,0], grounded=True, energy=me["max_energy"])
     capture = 0.0
     last_spent = -100
-    energy = me["max_energy"]
-    grounded = True
     dt = 0.1
     for step in range(400):
         t = step * dt
-        me.update(pos=[x,y,z], vel=[vx,vy,vz], grounded=grounded, energy=energy)
+        x, y, z = me["pos"]
         obs.update(t=t, tick=2*step)
         draw.clear()
         action = bot.act(obs)
@@ -77,37 +75,7 @@ def trial(hello, fixture, kind, rng, opponent=False):
                 return t
         elif near and (kind == "cube" or action.get("take") == obj["id"]):
             return t
-        boost = action.get("boost", False) and energy > 0
-        speed = stats["boost_speed"] if grounded and boost else stats["walk_speed"]
-        mx, my = action.get("move", [0,0])
-        dvx, dvy = speed*mx-vx, speed*my-vy
-        accel = stats["ground_accel" if grounded else "air_accel"] * dt
-        scale = min(1, accel / max(0.001, math.hypot(dvx, dvy)))
-        vx, vy = vx + dvx*scale, vy + dvy*scale
-        if grounded and action.get("jump"):
-            grounded, vz = False, stats["jump_speed"]
-        if boost and (not grounded or abs(mx)+abs(my)>0.1):
-            energy = max(0, energy - dt*stats["boost_drain" if grounded else "jet_drain"])
-            last_spent = t
-        elif t-last_spent >= stats["energy_regen_delay"]:
-            energy = min(me["max_energy"], energy+dt*stats["energy_regen"])
-        if not grounded:
-            vz += dt*((stats["jet_accel"] if boost else 0) - stats["gravity"])
-            vz = min(vz, stats["max_rise_speed"])
-        z += vz*dt
-        nx, ny = x+vx*dt, y+vy*dt
-        if arena.height[arena.cell(nx, y)] <= z + stats["step_up"]:
-            x = nx
-        else:
-            vx = 0
-        if arena.height[arena.cell(x, ny)] <= z + stats["step_up"]:
-            y = ny
-        else:
-            vy = 0
-        floor = arena.height[arena.cell(x, y)]
-        grounded = z <= floor+0.05 and vz <= 0
-        if grounded:
-            z, vz = floor, 0
+        last_spent = advance(me, action, arena, t, dt, last_spent)
     return None
 
 

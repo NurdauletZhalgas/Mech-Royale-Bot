@@ -1,8 +1,19 @@
 # Mech-Royale-Bot
 
-Future winner of buildathon
+Team **anti-67** is competing for first place in Mech Royale. Builders scores each match as `16 - place` and averages the points across matches.
 
-The track scores mean placement across matches. First place earns 15 points and sixteenth earns zero. The organizers list the Python starter at **1.15**. Our first experiment asks whether collecting an early cube improves that score.
+The selected competition entry is [`495ba6e`](https://github.com/NurdauletZhalgas/Mech-Royale-Bot/commit/495ba6ef9236922c543b215ff451f65f8fae6934). It scored **5.06** across 48 official practice matches on November 21, 2026. The Dockerfile and all files it copies on `main` match that submission.
+
+## Opening search experiment
+
+This branch gives an empty inventory slot higher priority during the first zone hold. A healthy bot with no visible rival or valuable objective searches new ground for a pickup. It resumes its usual behavior when it finds an objective or a rival appears.
+
+`python check/opening.py --trials 128 --seed 714600` tests how often the bot collects a second weapon within 45 seconds in randomly generated layouts. Pass `--bot-root` with a checkout of another revision to replay the same layouts. The drill models floor pickups, approximate visibility and travel. Crates, other players and match scoring are outside its scope.
+
+| Build | Equipped by 15 s | Equipped by 45 s | Mean time, counting misses as 45 s |
+| --- | ---: | ---: | ---: |
+| 5.06 competition entry | 110/128 | 116/128 | 10.58 s |
+| Opening search candidate | 120/128 | 128/128 | 7.70 s |
 
 ## Bots
 
@@ -34,14 +45,15 @@ On November 21, 2026, Builders scored team **anti-67** at **1.27** over 48 pract
 | Rooftop navigation | `b75ce9a` | 0.98 | `BB-5D46B8D8` |
 | Resource collection and supply drops | `81943da` | 3.98 | `BB-A993554A` |
 | Movement during encounters | `edb6e1f` | 4.44 | `BB-0E869D03` |
+| Finish pickups and supply captures during encounters | `495ba6e` | **5.06** | `BB-A1849301` |
+| Adjust energy use and encounter distance | `256e3ae` | 4.98 | `BB-8BD2A3E1` |
+| Prioritize the shrinking circle | `879f19d` | 4.71 | `BB-6892A2E6` |
+| Value cube piles by upgrade and prioritize the circle in the final three | `81de681` | 4.96 | `BB-89CFB778` |
 
 `python check/objectives.py` runs short single-objective trials using an approximate movement grid and the kit's timing and energy settings. Use `--seed` to change layouts and `--trials` to change the sample count. The test reports travel and capture times with no opponents.
 
 ## Competition plan
 
-1. **Get a score.** Run the image check, publish an approved public repository, and enter its URL on the track page. Record the submitted commit, score, and one-sentence description of the change.
-2. **Beat 1.15 in practice.** The 15 house mechs cooperate. Hiding alone gives them little reason to die. Use the first score and any available replays to decide whether the next change should improve early upgrades, getting around buildings, or finishing one opponent before more arrive. Change one behavior per scored run. The rules allow four submissions per hour.
-3. **Prepare for qualifying and the final.** Other teams fight each other on fresh seeds. Test a rule for leaving a fight while hurt and reaching a safe part of the next circle, then a rule for when to re-enter. Use observable game state so the same bot can handle both formats.
-4. **Lock a reproducible entry.** The brief lists Sunday at 9 PM GMT+5 as the cutoff. Leave time for a fresh image build and a scored practice run. Verify the selected commit and keep all submitted commits publicly accessible through results.
+The final rewards the highest average placement score over 64 free-for-all matches on fresh seeds. Practice uses 15 cooperating house mechs. Use the best scored commit as the baseline, compare changes on matched local scenarios, and record official results for each candidate. The rules allow four submissions per rolling hour.
 
 The exact game mechanics and message formats are in [protocol.md](protocol.md). The event brief is on the [Mech Royale track page](https://www.joinbuilders.org/buildathon/tracks/builders).
