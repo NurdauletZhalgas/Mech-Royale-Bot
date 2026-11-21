@@ -18,14 +18,8 @@ class Movement:
         if distance > 180 or not me["in_zone"]:
             return
         # Keep moving while the torso stays on the game's opponent. Shorter circles suit lightning.
-        equipment = {w["kind"]: w["stats"] for w in me["weapons"] if w}
-        rival = enemy.get("weapons", [])
-        if "lightning" in equipment:
-            ideal = equipment["lightning"]["range"] * 0.69
-        elif "laser" in equipment:
-            ideal = 104 if "lightning" in rival else 83
-        else:
-            ideal = 65 if "lightning" in rival else 40
+        has_lightning = any(w and w["kind"] == "lightning" for w in me["weapons"])
+        ideal = 30 if has_lightning else 47
         if recovering and enemy.get("hp", 1000) > me["max_hp"] * 0.3:
             ideal = max(ideal, 95)
         if opponents >= 3:
@@ -69,7 +63,5 @@ class Movement:
         jump = me["grounded"] and energy > 0.35 and now >= self.jump_at
         if jump:
             self.jump_at = now + (1.4 if obstacle else 2.6)
-        using_arc = "lightning" in equipment and distance < equipment["lightning"]["range"]
-        run = self.sprinting and me["grounded"] and (not using_arc or energy > 0.85)
         action.update(move=[vx, vy], jump=jump,
-                      boost=run or (obstacle and energy > 0.2))
+                      boost=(self.sprinting and me["grounded"]) or (obstacle and energy > 0.2))

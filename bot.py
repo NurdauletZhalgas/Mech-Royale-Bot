@@ -9,7 +9,7 @@ from mobility import Movement
 
 
 class Bot:
-    name = "last-circle"
+    name = "compound"
 
     def __init__(self, hello: mf.Hello):
         self.economy = Economy(hello["config"])
@@ -18,9 +18,6 @@ class Bot:
         self.drone_height = hello["config"]["npc"]["height"]
         self.focus = None
         self.recovering = False
-        self.arc_recharging = False
-        self.facing_alert = 0
-        self.facing_until = -1
         self.arena = Arena(hello["map"]["dir"])
         self.movement = Movement(self.arena, hello["slot"])
         self.route = Route(self.arena)
@@ -44,7 +41,7 @@ class Bot:
         choice = self.economy.select(obs, action)
         purpose, item = choice if choice else ("roof", None)
         goal = tuple(item["pos"][:2]) if item else self.goal
-        protect_circle = circle_priority(obs)
+        protect_circle = obs["alive"] <= 3 and zone["radius"] <= 70 and circle_priority(obs)
         if protect_circle:
             purpose, item = "circle", None
             goal = tuple(zone["next_center"])
@@ -66,7 +63,6 @@ class Bot:
         elif goal_dist < 10 and item:
             wx, wy, top = *goal, goal_z
         if purpose == "circle" and goal_dist < 9:
-            # Path cells are six metres wide. The last circle closes to a point.
             wx, wy = goal
         if (purpose == "drop" and me["grounded"] and goal_dist < item["radius"] * 0.65
                 and abs(z - goal_z) < 2):
@@ -102,17 +98,7 @@ class Bot:
             self.recovering = True
         elif hp_fraction > 0.85:
             self.recovering = False
-        for event in obs["events"]:
-            if event["type"] == "damaged" and event.get("bearing") is not None:
-                self.facing_alert, self.facing_until = event["bearing"], now + 1.6
-        if now > self.facing_until and not opponents:
-            warning = next((s for s in obs["sounds"] if s["dist"] != "far" and s["age"] < 0.4
-                            and s["kind"] in ("laser_charge", "lightning", "gun")), None)
-            if warning:
-                self.facing_alert, self.facing_until = warning["bearing"], now + 0.45
-        # Torso yaw drives the vision wedge and the game's front-armour modifier.
-        scan = self.facing_alert if now <= self.facing_until else self.orbit_phase + now * 2.7
-        action["aim"] = [scan, 0]
+        action["aim"] = [self.orbit_phase + now * 1.8, 0]
         target_dist = math.inf
         if opponents:
             nearest = min(opponents, key=lambda a: math.dist(a["pos"], me["pos"]))
@@ -126,15 +112,14 @@ class Bot:
         else:
             self.focus = None
         visible_crate = purpose == "crate" and any(c["id"] == item["id"] for c in obs["crates"])
-        can_farm = not opponents and now > self.facing_until
-        if can_farm and visible_crate:
+        if not opponents and visible_crate:
             self.aim_at_prop(action, me, item["pos"], self.economy.crate_height * 0.5)
             target_dist = math.dist(item["pos"], me["pos"])
             if goal_dist < 27 and abs(goal_z - z) < 4:
                 factor = -1 if goal_dist < 12 else 0
                 action.update(move=[factor * math.cos(action["aim"][0]), factor * math.sin(action["aim"][0])],
                               jump=False, boost=False)
-        elif can_farm and obs["mechs"]:
+        elif not opponents and obs["mechs"]:
             drone = min(obs["mechs"], key=lambda m: math.dist(m["pos"], me["pos"]))
             self.aim_at_prop(action, me, drone["pos"], self.drone_height * 0.5)
             target_dist = math.dist(drone["pos"], me["pos"])
@@ -150,7 +135,6 @@ class Bot:
             # Zone damage disables regeneration; spend the turn getting inside.
             target_dist = math.inf
         fire = [False, False]
-        yaw_gap = abs(math.remainder(action["aim"][0] - me["aim"][0], math.tau))
         for i, weapon in enumerate(me["weapons"]):
             if not weapon:
                 continue
@@ -162,13 +146,7 @@ class Bot:
             elif kind == "laser":
                 fire[i] = target_dist < stats["range"] and weapon.get("charge", 0) < stats["charge"] * 0.92
             elif kind == "lightning":
-                if me["energy"] < stats["energy"] * 1.1:
-                    self.arc_recharging = True
-                elif me["energy"] >= min(me["max_energy"] * 0.45, stats["energy"] * 9):
-                    self.arc_recharging = False
-                # The arc spends energy even when fired outside its game cone.
-                fire[i] = (target_dist < stats["range"] and not self.arc_recharging
-                           and yaw_gap < math.radians(stats["cone_deg"]))
+                fire[i] = target_dist < stats["range"] and me["energy"] >= stats["energy"]
             elif kind == "mortar":
                 fire[i] = 25 < target_dist < 105
         action["fire"] = fire

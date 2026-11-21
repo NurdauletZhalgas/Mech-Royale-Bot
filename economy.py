@@ -1,5 +1,6 @@
 """Choose objectives from the game's visible pickups, upgrade offers, and drop timers."""
 import math
+from collections import Counter
 
 
 UPGRADES = ("armor", "plating", "gun_damage", "gun_rate", "gun_mag", "nanites",
@@ -38,6 +39,8 @@ class Economy:
     def __init__(self, config):
         self.pickup_radius = config["loot"]["pickup_radius"]
         self.crate_height = config["crates"]["height"]
+        self.stat_cap = config["cubes"]["stat_cap"]
+        self.thresholds = config["cubes"]["upgrade_thresholds"]
         self.memory = {}
         self.ignored = {}
         self.chosen = None
@@ -48,8 +51,15 @@ class Economy:
         pos = me["pos"]
         if obs["offer"]:
             choices = obs["offer"]["choices"]
+            priority = list(UPGRADES)
+            if "nanites" not in me["upgrades"] and me["hp"] < 0.7 * me["max_hp"] and zone["radius"] > 70:
+                priority.insert(0, "nanites")
+            if not me["upgrades"]:
+                priority.insert(0, "plating")
+            if "gun_mag" not in me["upgrades"]:
+                priority.insert(priority.index("gun_damage"), "gun_mag")
             action["pick"] = min(range(len(choices)), key=lambda i:
-                                 UPGRADES.index(choices[i]["id"]) if choices[i]["id"] in UPGRADES else len(UPGRADES))
+                                 priority.index(choices[i]["id"]) if choices[i]["id"] in priority else len(priority))
         slots = me["weapons"]
         changes = equipment_changes(slots)
         best_take = 0
@@ -69,6 +79,16 @@ class Economy:
                 self.memory.pop(event["id"], None)
         nearby_enemy = min((math.dist(pos, a["pos"]) for a in obs["mechs"] if a["kind"] == "mech"),
                            default=math.inf)
+        # A defeated mech leaves several individually identified cubes. Estimate
+        # the value of the whole nearby pile using two shifted spatial grids.
+        def bins(point):
+            x, y, z = point
+            return ((0, math.floor(x/12), math.floor(y/12), math.floor(z/5)),
+                    (1, math.floor((x+6)/12), math.floor((y+6)/12), math.floor((z+2.5)/5)))
+
+        piles = Counter(key for cube in obs["cubes"] for key in bins(cube["pos"]))
+        until_upgrade = next((threshold - me["cubes"] for threshold in self.thresholds
+                              if threshold > me["cubes"]), math.inf)
         candidates = []
         for item_id, (kind, item, seen) in list(self.memory.items()):
             d = math.dist(pos[:2], item["pos"][:2])
@@ -81,7 +101,11 @@ class Economy:
                 gain, _ = changes[item["kind"]]
                 value = 62 + 1.9 * gain
             elif kind == "cube":
-                value = 135 if me["cubes"] < 10 else 62
+                count = max(1, *(piles[key] for key in bins(item["pos"])))
+                useful = min(count, max(0, self.stat_cap - me["cubes"]))
+                value = (135 + 23 * min(5, useful - 1)) if useful else 22
+                if count >= until_upgrade:
+                    value += 36
             else:
                 if nearby_enemy < 90 or me["cubes"] >= 10 or d > 62:
                     continue
